@@ -1,0 +1,26 @@
+{
+  "name": "navercrawler",
+  "version": "1.0.0",
+  "description": "",
+  "main": "naver_final_app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ghwj12/naverCrawler.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ghwj12/naverCrawler/issues"
+  },
+  "homepage": "https://github.com/ghwj12/naverCrawler#readme",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "googleapis": "^154.1.0"
+  }
+}

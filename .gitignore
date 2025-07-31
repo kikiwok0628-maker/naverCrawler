@@ -1,0 +1,9 @@
+# 라이브러리
+node_modules/
+
+# 로그 파일 무시
+*.log
+
+# 인증 키
+package-google-key.json
+package-naver-key.json
