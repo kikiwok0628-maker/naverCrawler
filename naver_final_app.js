@@ -151,6 +151,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 병렬 처리 (최대 10개씩)
+function chunkArray(array, size) {
+  const res = [];
+  for (let i = 0; i < array.length; i += size) {
+    res.push(array.slice(i, i + size));
+  }
+  return res;
+}
+
 // POST 요청 받는 엔드포인트
 app.post("/naver_trigger", async (req, res) => {
   const { spreadsheetId, sheetName, sheetId } = req.body;
@@ -180,21 +189,30 @@ app.post("/naver_trigger", async (req, res) => {
     // 시트에서 데이터 읽기
     const rows = await getRowsFromSheet(sheets, spreadsheetId, sheetName);
 
+    console.log("순위 조회 시작!");
+
     // 키워드/MID 추출
     let ranks = [];
     for (const row of rows) {
       const keyword = row[0];
       const productMid = row[1];
       const compareMid = row[2];
+      let rank;
       if (!keyword || !productMid) {
         ranks.push([""]);
         continue;
       }
-      const useMid = compareMid && compareMid !== "" ? compareMid : productMid;
-      const rank = await naverCrawling(keyword, useMid);
+      if (compareMid && compareMid !== "") {
+        rank = await naverCrawling(keyword, compareMid);
+        if (rank === "확인 불가") {
+          rank = await naverCrawling(keyword, productMid);
+        }
+      } else {
+        rank = await naverCrawling(keyword, productMid);
+      }
       ranks.push([rank]);
-      console.log(`keyword: ${keyword}, mid: ${useMid}, rank: ${rank}`);
-      await sleep(500);
+      console.log(`keyword: ${keyword}, rank: ${rank}`);
+      await sleep(300);
     }
 
     // 순위값 시트에 반영
