@@ -3,95 +3,107 @@ const bodyParser = require("body-parser");
 const { google } = require("googleapis");
 const path = require("path");
 const axios = require("axios");
+const pLimit = require("p-limit");
 
 const scopes = ["https://www.googleapis.com/auth/spreadsheets"];
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 app.use(bodyParser.json());
 
-// 시트 데이터 읽기
+const naverKeys = (() => {
+  if (process.env.NAVER_KEYS_JSON) {
+    return JSON.parse(process.env.NAVER_KEYS_JSON);
+  } else {
+    return require(path.join(__dirname, "package-naver-key.json"));
+  }
+})();
+
+let keyIndex = 0;
+// 네이버 인증키 순환
+function getNextNaverHeaders() {
+  const { clientId, clientSecret } = naverKeys[keyIndex];
+  keyIndex = (keyIndex + 1) % naverKeys.length;
+  return {
+    "X-Naver-Client-Id": clientId,
+    "X-Naver-Client-Secret": clientSecret
+  };
+}
+
+// 한 번에 최대 5개 그룹 동시 처리
+const groupLimit = pLimit(5);
+
+// 시트 읽기
 async function getRowsFromSheet(sheets, spreadsheetId, sheetName) {
   const range = `${sheetName}!G7:I`;
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range,
-  });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   return res.data.values || [];
 }
 
-// 키워드별 타겟 MID 순위 조회 및 조기 종료 기능 추가
-async function fetchItemsForKeyword(keyword, targets) {
-  const basic_url = "https://openapi.naver.com/v1/search/shop?query=";
-  let clientId, clientSecret;
-  if (process.env.NAVER_KEY_JSON) {
-    const keyObject = JSON.parse(process.env.NAVER_KEY_JSON);
-    clientId = keyObject.clientId;
-    clientSecret = keyObject.clientSecret;
-  } else {
-    const keyObject = require(path.join(__dirname, "package-naver-key.json"));
-    clientId = keyObject.clientId;
-    clientSecret = keyObject.clientSecret;
+// 재시도용 sleep
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// axios.get 래퍼: 429 시 재시도 + 키 순환
+async function axiosGetWithRetry(url, retries = 5, backoff = 300) {
+  try {
+    const headers = getNextNaverHeaders();
+    return await axios.get(url, { headers });
+  } catch (err) {
+    if (
+      err.response &&
+      err.response.status === 429 &&
+      retries > 0
+    ) {
+      const ra = err.response.headers["retry-after"];
+      const wait = ra ? parseFloat(ra) * 1000 : backoff;
+      // console.warn(`429 received, retrying after ${wait}ms (${retries} retries left)`);
+      await sleep(wait);
+      return axiosGetWithRetry(url, retries - 1, backoff * 2);
+    }
+    throw err;
   }
-  const headers = {
-    "X-Naver-Client-Id": clientId,
-    "X-Naver-Client-Secret": clientSecret,
-  };
+}
+
+// 키워드 검색 시 3페이지 병렬 요청 & 429 재시도
+async function fetchItemsForKeyword(keyword, targets) {
   const displayNum = 100;
   const targetSet = new Set(targets.map(String));
   const midToRank = {};
-  let foundCount = 0;
 
-  // 최대 500개까지 조회
-  for (let i = 0; i < 5; i++) {
-    const startNum = displayNum * i + 1;
-    const url = `${basic_url}${encodeURIComponent(
-      keyword
-    )}&display=${displayNum}&start=${startNum}`;
-    try {
-      const response = await axios.get(url, { headers });
-      const json = response.data;
-      if (json.items && json.items.length > 0) {
-        json.items.forEach((item, idx) => {
-          const id = String(item.productId);
-          if (targetSet.has(id) && midToRank[id] === undefined) {
-            midToRank[id] = startNum + idx;
-            foundCount++;
-          }
-        });
-        if (foundCount >= targetSet.size) {
-          // 모든 타겟 MID 발견 시 조기 종료
-          return midToRank;
-        }
-      } else {
-        break; // 아이템이 없으면 중단
+  const pageLimit = pLimit(3);
+  // 상품 500개까지 검색
+  const pageTasks = Array.from({ length: 5 }, (_, i) => {
+    const start = i * displayNum + 1;
+    const url = `https://openapi.naver.com/v1/search/shop?query=${encodeURIComponent(keyword)}&display=${displayNum}&start=${start}`;
+    return pageLimit(async () => {
+      const response = await axiosGetWithRetry(url);
+      return { data: response.data, start };
+    }).catch(() => null);
+  });
+
+  const responses = await Promise.all(pageTasks);
+  for (const resp of responses) {
+    if (!resp || !resp.data.items) continue;
+    resp.data.items.forEach((item, idx) => {
+      const id = String(item.productId);
+      if (targetSet.has(id) && midToRank[id] === undefined) {
+        midToRank[id] = resp.start + idx;
       }
-    } catch (e) {
-      console.log("API 호출 오류: ", e.message);
-      break;
-    }
-    // await sleep(300);
+    });
+    if (Object.keys(midToRank).length >= targetSet.size) break;
   }
   return midToRank;
 }
 
-// 결과 시트에 입력(J열에 열 추가)
-async function sendDataToSheet(
-  sheets,
-  ranks,
-  sheetId,
-  sheetName,
-  spreadsheetId
-) {
-  const colorCellRow = 5;
-  const colorCellCol = 9; // J열(0부터 시작)
-  const writeRange = `${sheetName}!J6:J${6 + ranks.length}`;
-  const date = new Date();
-  const rankRowName = date
+// batchUpdate + values.batchUpdate로 결과 반영
+async function sendDataToSheet(sheets, ranks, sheetId, sheetName, spreadsheetId) {
+  const date = new Date()
     .toLocaleString("sv-SE", { hour12: false, timeZone: "Asia/Seoul" })
     .slice(2, 16)
     .replace("T", " ");
-  const values = [[rankRowName], ...ranks];
+  const values = [[date], ...ranks];
+  const writeRange = `${sheetName}!J6:J${6 + ranks.length}`;
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
@@ -99,122 +111,88 @@ async function sendDataToSheet(
       requests: [
         {
           insertDimension: {
-            range: {
-              sheetId: sheetId,
-              dimension: "COLUMNS",
-              startIndex: colorCellCol,
-              endIndex: colorCellCol + 1,
-            },
+            range: { sheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 },
             inheritFromBefore: false,
           },
         },
         {
           repeatCell: {
             range: {
-              sheetId: sheetId,
-              startRowIndex: colorCellRow,
-              endRowIndex: colorCellRow + 1,
-              startColumnIndex: colorCellCol,
-              endColumnIndex: colorCellCol + 1,
+              sheetId,
+              startRowIndex: 5,
+              endRowIndex: 6,
+              startColumnIndex: 9,
+              endColumnIndex: 10,
             },
             cell: {
               userEnteredFormat: {
-                backgroundColor: {
-                  red: 0.6118,
-                  green: 0.1529,
-                  blue: 0.6902,
-                },
+                backgroundColor: { red: 0.6118, green: 0.1529, blue: 0.6902 },
                 horizontalAlignment: "center",
               },
             },
-            fields:
-              "userEnteredFormat.backgroundColor,userEnteredFormat.horizontalAlignment",
+            fields: "userEnteredFormat(backgroundColor, horizontalAlignment)",
           },
         },
       ],
     },
   });
 
-  await sheets.spreadsheets.values.update({
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
-    range: writeRange,
-    valueInputOption: "RAW",
-    requestBody: { values },
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [{ range: writeRange, values }],
+    },
   });
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// POST 요청 받는 엔드포인트
 app.post("/naver_trigger", async (req, res) => {
   const { spreadsheetId, sheetName, sheetId } = req.body;
   if (!spreadsheetId || !sheetName || !sheetId) {
     return res.status(400).json({ error: "필수값 누락" });
   }
 
+  console.log("순위 조회 시작!");
+
   try {
-    let auth;
-    if (process.env.GOOGLE_KEY_JSON) {
-      const keyObject = JSON.parse(process.env.GOOGLE_KEY_JSON);
-      auth = new google.auth.GoogleAuth({ credentials: keyObject, scopes });
-    } else {
-      auth = new google.auth.GoogleAuth({
-        keyFile: path.join(__dirname, "package-google-key.json"),
-        scopes,
-      });
-    }
+    const auth = process.env.GOOGLE_KEY_JSON
+      ? new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_KEY_JSON), scopes })
+      : new google.auth.GoogleAuth({ keyFile: path.join(__dirname, "package-google-key.json"), scopes });
     const sheets = google.sheets({ version: "v4", auth });
 
-    // 시트에서 데이터 읽기
     const rows = await getRowsFromSheet(sheets, spreadsheetId, sheetName);
-    console.log("순위 조회 시작!");
 
-    // 같은 키워드끼리 그룹핑
+    // 키워드별 그룹핑
     const groups = {};
     rows.forEach((row, idx) => {
-      const [keyword, productMid, compareMid] = row;
-      if (!keyword || !productMid) return;
-      if (!groups[keyword]) groups[keyword] = [];
-      groups[keyword].push({ productMid, compareMid, idx });
+      const [kw, prod, cmp] = row;
+      if (!kw || !prod) return;
+      groups[kw] = groups[kw] || [];
+      groups[kw].push({ prod, cmp, idx });
     });
 
-    // 결과 배열 초기화
-    let ranks = Array(rows.length).fill(null);
+    // 그룹별 동시 병렬 처리
+    const ranks = Array(rows.length).fill([""]);
+    await Promise.all(
+      Object.entries(groups).map(([kw, entries]) =>
+        groupLimit(async () => {
+          const mids = [...new Set(entries.flatMap(e => e.cmp ? [e.cmp, e.prod] : [e.prod]))];
+          const map = await fetchItemsForKeyword(kw, mids);
 
-    // 그룹별로 한 번만 크롤링 후 각 항목별 순위 조회
-    for (const [keyword, entries] of Object.entries(groups)) {
-      // 타겟 MID 목록 생성
-      const targetMids = entries.reduce((acc, { productMid, compareMid }) => {
-        if (compareMid) acc.push(compareMid);
-        acc.push(productMid);
-        return acc;
-      }, []);
-      const itemsMap = await fetchItemsForKeyword(keyword, [
-        ...new Set(targetMids),
-      ]);
+          entries.forEach(({ prod, cmp, idx }) => {
+            let r =
+              cmp && map[cmp] !== undefined
+                ? map[cmp]
+                : map[prod] !== undefined
+                ? map[prod]
+                : "확인 불가";
+            ranks[idx] = [String(r)];
+          });
+        })
+      )
+    );
 
-      entries.forEach(({ productMid, compareMid, idx }) => {
-        let rankValue;
-        if (compareMid && itemsMap[compareMid] !== undefined) {
-          rankValue = String(itemsMap[compareMid]);
-        } else if (itemsMap[productMid] !== undefined) {
-          rankValue = String(itemsMap[productMid]);
-        } else {
-          rankValue = "확인 불가";
-        }
-        ranks[idx] = [rankValue];
-        // console.log(`keyword: ${keyword}, idx: ${idx + 1}, rank: ${rankValue}`);
-      });
-    }
-
-    // 빈 값은 공백 처리
-    ranks = ranks.map((r) => r || [""]);
-
-    // 시트에 순위 반영
     await sendDataToSheet(sheets, ranks, sheetId, sheetName, spreadsheetId);
-
     console.log("순위 업데이트 완료!");
     return res.json({ status: "success" });
   } catch (e) {
@@ -224,5 +202,5 @@ app.post("/naver_trigger", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`서버가 실행중입니다. 포트: ${PORT}`);
+  console.log(`서버 실행중 포트: ${PORT}`);
 });
