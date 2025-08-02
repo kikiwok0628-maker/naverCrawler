@@ -179,7 +179,6 @@ app.post("/naver_trigger", async (req, res) => {
       if (!groups[keyword]) groups[keyword] = [];
       groups[keyword].push({ productMid, compareMid, idx });
     });
-    console.log(`groups \n${groups}`);
 
     // 결과 배열 초기화
     let ranks = Array(rows.length).fill(null);
@@ -206,7 +205,7 @@ app.post("/naver_trigger", async (req, res) => {
           rankValue = "확인 불가";
         }
         ranks[idx] = [rankValue];
-        console.log(`keyword: ${keyword}, idx: ${idx + 1}, rank: ${rankValue}`);
+        // console.log(`keyword: ${keyword}, idx: ${idx + 1}, rank: ${rankValue}`);
       });
     }
 
