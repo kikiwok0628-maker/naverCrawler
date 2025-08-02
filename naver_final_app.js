@@ -29,8 +29,8 @@ function getNextNaverHeaders() {
   };
 }
 
-// 한 번에 최대 5개 그룹 동시 처리
-const groupLimit = pLimit(5);
+// 한 번에 최대 7개 그룹 동시 처리
+const groupLimit = pLimit(7);
 
 // 시트 읽기
 async function getRowsFromSheet(sheets, spreadsheetId, sheetName) {
