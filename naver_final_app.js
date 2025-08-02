@@ -96,16 +96,9 @@ async function fetchItemsForKeyword(keyword, targets) {
   return midToRank;
 }
 
-// batchUpdate + values.batchUpdate로 결과 반영
-async function sendDataToSheet(sheets, ranks, sheetId, sheetName, spreadsheetId) {
-  const date = new Date()
-    .toLocaleString("sv-SE", { hour12: false, timeZone: "Asia/Seoul" })
-    .slice(2, 16)
-    .replace("T", " ");
-  const values = [[date], ...ranks];
-  const writeRange = `${sheetName}!J6:J${6 + ranks.length}`;
-
-  await sheets.spreadsheets.batchUpdate({
+// 열 추가
+async function addColumnInSheet(sheets, sheetId, spreadsheetId) {
+   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
       requests: [
@@ -136,6 +129,16 @@ async function sendDataToSheet(sheets, ranks, sheetId, sheetName, spreadsheetId)
       ],
     },
   });
+}
+
+// 순위 결과 반영
+async function sendDataToSheet(sheets, ranks, sheetName, spreadsheetId) {
+  const date = new Date()
+    .toLocaleString("sv-SE", { hour12: false, timeZone: "Asia/Seoul" })
+    .slice(2, 16)
+    .replace("T", " ");
+  const values = [[date], ...ranks];
+  const writeRange = `${sheetName}!J6:J${6 + ranks.length}`;
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
@@ -159,6 +162,8 @@ app.post("/naver_trigger", async (req, res) => {
       ? new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_KEY_JSON), scopes })
       : new google.auth.GoogleAuth({ keyFile: path.join(__dirname, "package-google-key.json"), scopes });
     const sheets = google.sheets({ version: "v4", auth });
+
+    await addColumnInSheet(sheets, sheetId, spreadsheetId);
 
     const rows = await getRowsFromSheet(sheets, spreadsheetId, sheetName);
 
@@ -192,7 +197,7 @@ app.post("/naver_trigger", async (req, res) => {
       )
     );
 
-    await sendDataToSheet(sheets, ranks, sheetId, sheetName, spreadsheetId);
+    await sendDataToSheet(sheets, ranks, sheetName, spreadsheetId);
     console.log("순위 업데이트 완료!");
     return res.json({ status: "success" });
   } catch (e) {
