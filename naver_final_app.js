@@ -96,7 +96,7 @@ async function fetchItemsForKeyword(keyword, targets) {
   return midToRank;
 }
 
-// 열 추가
+// 구글 시트에 열 추가
 async function addColumnInSheet(sheets, sheetId, spreadsheetId) {
    await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
@@ -120,7 +120,7 @@ async function addColumnInSheet(sheets, sheetId, spreadsheetId) {
             cell: {
               userEnteredFormat: {
                 backgroundColor: { red: 0.6118, green: 0.1529, blue: 0.6902 },
-                horizontalAlignment: "center",
+                horizontalAlignment: "CENTER",
               },
             },
             fields: "userEnteredFormat(backgroundColor, horizontalAlignment)",
@@ -131,7 +131,7 @@ async function addColumnInSheet(sheets, sheetId, spreadsheetId) {
   });
 }
 
-// 순위 결과 반영
+// 구글 시트에 순위 업데이트
 async function sendDataToSheet(sheets, ranks, sheetName, spreadsheetId) {
   const date = new Date()
     .toLocaleString("sv-SE", { hour12: false, timeZone: "Asia/Seoul" })
