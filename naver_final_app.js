@@ -185,12 +185,21 @@ app.post("/naver_trigger", async (req, res) => {
           const map = await fetchItemsForKeyword(kw, mids);
 
           entries.forEach(({ prod, cmp, idx }) => {
-            let r =
-              cmp && map[cmp] !== undefined
-                ? map[cmp]
-                : map[prod] !== undefined
-                ? map[prod]
-                : "확인 불가";
+            let r;
+
+            const hasProdRank = map[prod] !== undefined;
+            const hasCmpRank  = cmp && map[cmp] !== undefined;
+
+            if (hasProdRank && hasCmpRank) {
+              // 둘 다 있으면 더 작은 순위를 선택
+              r = Math.min(map[prod], map[cmp]);
+            } else if (hasCmpRank) {
+              r = map[cmp];
+            } else if (hasProdRank) {
+              r = map[prod];
+            } else {
+              r = "확인 불가";
+            }
             ranks[idx] = [String(r)];
           });
         })
