@@ -12,11 +12,14 @@ app.use(bodyParser.json());
 
 const naverKeys = (() => {
   if (process.env.NAVER_KEYS_JSON) {
+    console.log("네이버 키: 환경변수에서 로드");
     return JSON.parse(process.env.NAVER_KEYS_JSON);
   } else {
+    console.log("네이버 키: 파일에서 로드 시도");
     return require(path.join(__dirname, "package-naver-key.json"));
   }
 })();
+console.log(`네이버 키 ${naverKeys.length}개 로드됨`);
 
 let keyIndex = 0;
 // 네이버 인증키 순환
@@ -48,8 +51,16 @@ async function sleep(ms) {
 async function axiosGetWithRetry(url, retries = 5, backoff = 300) {
   try {
     const headers = getNextNaverHeaders();
-    return await axios.get(url, { headers });
+    return await axios.get(url, { headers, timeout: 10000 });
   } catch (err) {
+    if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+      console.warn(`타임아웃 발생, 재시도 (${retries} 남음)`);
+      if (retries > 0) {
+        await sleep(backoff);
+        return axiosGetWithRetry(url, retries - 1, backoff * 2);
+      }
+      throw err;
+    }
     if (
       err.response &&
       err.response.status === 429 &&
@@ -57,10 +68,11 @@ async function axiosGetWithRetry(url, retries = 5, backoff = 300) {
     ) {
       const ra = err.response.headers["retry-after"];
       const wait = ra ? parseFloat(ra) * 1000 : backoff;
-      // console.warn(`429 received, retrying after ${wait}ms (${retries} retries left)`);
+      console.warn(`429 발생, ${wait}ms 후 재시도 (${retries} 남음)`);
       await sleep(wait);
       return axiosGetWithRetry(url, retries - 1, backoff * 2);
     }
+    console.error(`API 에러: ${err.response?.status || err.code}`);
     throw err;
   }
 }
@@ -181,13 +193,19 @@ app.post("/naver_trigger", async (req, res) => {
     });
 
     // 그룹별 동시 병렬 처리
-    console.log(`[${sheetName}] 총 ${Object.keys(groups).length}개 키워드 처리 시작`);
+    const totalKeywords = Object.keys(groups).length;
+    let completedKeywords = 0;
+    console.log(`[${sheetName}] 총 ${totalKeywords}개 키워드 처리 시작`);
     const ranks = Array(rows.length).fill([""]);
     await Promise.all(
       Object.entries(groups).map(([kw, entries]) =>
         groupLimit(async () => {
           const mids = [...new Set(entries.flatMap(e => e.cmp ? [e.cmp, e.prod] : [e.prod]))];
           const map = await fetchItemsForKeyword(kw, mids);
+          completedKeywords++;
+          if (completedKeywords % 20 === 0 || completedKeywords === totalKeywords) {
+            console.log(`[${sheetName}] 진행: ${completedKeywords}/${totalKeywords}`);
+          }
 
           entries.forEach(({ prod, cmp, idx }) => {
             let r;
