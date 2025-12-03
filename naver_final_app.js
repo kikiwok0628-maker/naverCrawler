@@ -11,9 +11,9 @@ const PORT = process.env.PORT || 3001;
 app.use(bodyParser.json());
 
 const naverKeys = (() => {
-  if (process.env.NAVER_KEYS_JSON) {
+  if (process.env.NAVER_API_KEYS_JSON) {
     console.log("네이버 키: 환경변수에서 로드");
-    return JSON.parse(process.env.NAVER_KEYS_JSON);
+    return JSON.parse(process.env.NAVER_API_KEYS_JSON);
   } else {
     console.log("네이버 키: 파일에서 로드 시도");
     return require(path.join(__dirname, "package-naver-key.json"));
