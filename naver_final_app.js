@@ -28,7 +28,7 @@ function getNextNaverHeaders() {
   keyIndex = (keyIndex + 1) % naverKeys.length;
   return {
     "X-Naver-Client-Id": clientId,
-    "X-Naver-Client-Secret": clientSecret
+    "X-Naver-Client-Secret": clientSecret,
   };
 }
 
@@ -53,7 +53,7 @@ async function axiosGetWithRetry(url, retries = 5, backoff = 300) {
     const headers = getNextNaverHeaders();
     return await axios.get(url, { headers, timeout: 10000 });
   } catch (err) {
-    if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+    if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") {
       console.warn(`타임아웃 발생, 재시도 (${retries} 남음)`);
       if (retries > 0) {
         await sleep(backoff);
@@ -61,18 +61,14 @@ async function axiosGetWithRetry(url, retries = 5, backoff = 300) {
       }
       throw err;
     }
-    if (
-      err.response &&
-      err.response.status === 429 &&
-      retries > 0
-    ) {
+    if (err.response && err.response.status === 429 && retries > 0) {
       const ra = err.response.headers["retry-after"];
       const wait = ra ? parseFloat(ra) * 1000 : backoff;
       console.warn(`429 발생, ${wait}ms 후 재시도 (${retries} 남음)`);
       await sleep(wait);
       return axiosGetWithRetry(url, retries - 1, backoff * 2);
     }
-    console.error(`API 에러: ${err.response?.status || err.code}`);
+    console.error(` API 에러: ${err.response?.status || err.code}`);
     throw err;
   }
 }
@@ -87,7 +83,9 @@ async function fetchItemsForKeyword(keyword, targets) {
   // 상품 500개까지 검색
   const pageTasks = Array.from({ length: 5 }, (_, i) => {
     const start = i * displayNum + 1;
-    const url = `https://openapi.naver.com/v1/search/shop?query=${encodeURIComponent(keyword)}&display=${displayNum}&start=${start}`;
+    const url = `https://openapi.naver.com/v1/search/shop?query=${encodeURIComponent(
+      keyword
+    )}&display=${displayNum}&start=${start}`;
     return pageLimit(async () => {
       const response = await axiosGetWithRetry(url);
       return { data: response.data, start };
@@ -110,13 +108,18 @@ async function fetchItemsForKeyword(keyword, targets) {
 
 // 구글 시트에 열 추가
 async function addColumnInSheet(sheets, sheetId, spreadsheetId) {
-   await sheets.spreadsheets.batchUpdate({
+  await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
       requests: [
         {
           insertDimension: {
-            range: { sheetId, dimension: "COLUMNS", startIndex: 9, endIndex: 10 },
+            range: {
+              sheetId,
+              dimension: "COLUMNS",
+              startIndex: 9,
+              endIndex: 10,
+            },
             inheritFromBefore: false,
           },
         },
@@ -171,8 +174,14 @@ app.post("/naver_trigger", async (req, res) => {
 
   try {
     const auth = process.env.GOOGLE_KEY_JSON
-      ? new google.auth.GoogleAuth({ credentials: JSON.parse(process.env.GOOGLE_KEY_JSON), scopes })
-      : new google.auth.GoogleAuth({ keyFile: path.join(__dirname, "package-google-key.json"), scopes });
+      ? new google.auth.GoogleAuth({
+          credentials: JSON.parse(process.env.GOOGLE_KEY_JSON),
+          scopes,
+        })
+      : new google.auth.GoogleAuth({
+          keyFile: path.join(__dirname, "package-google-key.json"),
+          scopes,
+        });
     const sheets = google.sheets({ version: "v4", auth });
 
     console.log(`[${sheetName}] 열 추가 중...`);
@@ -200,18 +209,27 @@ app.post("/naver_trigger", async (req, res) => {
     await Promise.all(
       Object.entries(groups).map(([kw, entries]) =>
         groupLimit(async () => {
-          const mids = [...new Set(entries.flatMap(e => e.cmp ? [e.cmp, e.prod] : [e.prod]))];
+          const mids = [
+            ...new Set(
+              entries.flatMap((e) => (e.cmp ? [e.cmp, e.prod] : [e.prod]))
+            ),
+          ];
           const map = await fetchItemsForKeyword(kw, mids);
           completedKeywords++;
-          if (completedKeywords % 20 === 0 || completedKeywords === totalKeywords) {
-            console.log(`[${sheetName}] 진행: ${completedKeywords}/${totalKeywords}`);
+          if (
+            completedKeywords % 20 === 0 ||
+            completedKeywords === totalKeywords
+          ) {
+            console.log(
+              `[${sheetName}] 진행: ${completedKeywords}/${totalKeywords}`
+            );
           }
 
           entries.forEach(({ prod, cmp, idx }) => {
             let r;
 
             const hasProdRank = map[prod] !== undefined;
-            const hasCmpRank  = cmp && map[cmp] !== undefined;
+            const hasCmpRank = cmp && map[cmp] !== undefined;
 
             if (hasProdRank && hasCmpRank) {
               // 둘 다 있으면 더 작은 순위를 선택
