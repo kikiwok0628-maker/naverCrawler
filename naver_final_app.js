@@ -11,12 +11,24 @@ const PORT = process.env.PORT || 3001;
 app.use(bodyParser.json());
 
 const naverKeys = (() => {
-  if (process.env.NAVER_API_KEYS_JSON) {
-    console.log("네이버 키: 환경변수에서 로드");
-    return JSON.parse(process.env.NAVER_API_KEYS_JSON);
+  // Railway 환경변수 길이 제한 우회: 여러 환경변수 합치기 (NAVER_KEYS_1, NAVER_KEYS_2, ...)
+  const keyEnvs = [];
+  for (let i = 1; i <= 20; i++) {
+    const env = process.env[`NAVER_KEYS_${i}`];
+    if (env) {
+      try {
+        keyEnvs.push(...JSON.parse(env));
+      } catch (e) {
+        console.error(`NAVER_KEYS_${i} 파싱 실패:`, e.message);
+      }
+    }
+  }
+  if (keyEnvs.length > 0) {
+    console.log("네이버 키: 분할 환경변수에서 로드");
+    return keyEnvs;
   } else {
-    console.log("네이버 키: 파일에서 로드 시도");
-    return require(path.join(__dirname, "package-naver-key.json"));
+    console.error("네이버 키를 찾을 수 없습니다. NAVER_KEYS_1, NAVER_KEYS_2 등의 환경변수를 설정하세요.");
+    return [];
   }
 })();
 console.log(`네이버 키 ${naverKeys.length}개 로드됨`);
