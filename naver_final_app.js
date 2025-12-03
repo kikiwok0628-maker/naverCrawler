@@ -49,8 +49,8 @@ function getNextNaverHeaders() {
   };
 }
 
-// 한 번에 최대 3개 그룹 동시 처리 (429 방지)
-const groupLimit = pLimit(5);
+// 한 번에 최대 7개 그룹 동시 처리
+const groupLimit = pLimit(7);
 
 // 시트 읽기
 async function getRowsFromSheet(sheets, spreadsheetId, sheetName) {
@@ -96,7 +96,7 @@ async function fetchItemsForKeyword(keyword, targets) {
   const targetSet = new Set(targets.map(String));
   const midToRank = {};
 
-  const pageLimit = pLimit(2);
+  const pageLimit = pLimit(3);
   // 상품 500개까지 검색
   const pageTasks = Array.from({ length: 5 }, (_, i) => {
     const start = i * displayNum + 1;
