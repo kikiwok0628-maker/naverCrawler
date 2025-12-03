@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3001;
 app.use(bodyParser.json());
 
 const naverKeys = (() => {
-  // Railway 환경변수 길이 제한 우회: 여러 환경변수 합치기 (NAVER_KEYS_1, NAVER_KEYS_2, ...)
+  // 1. 분할 환경변수 시도 (NAVER_KEYS_1, NAVER_KEYS_2, ...)
   const keyEnvs = [];
   for (let i = 1; i <= 20; i++) {
     const env = process.env[`NAVER_KEYS_${i}`];
@@ -26,8 +26,13 @@ const naverKeys = (() => {
   if (keyEnvs.length > 0) {
     console.log("네이버 키: 분할 환경변수에서 로드");
     return keyEnvs;
-  } else {
-    console.error("네이버 키를 찾을 수 없습니다. NAVER_KEYS_1, NAVER_KEYS_2 등의 환경변수를 설정하세요.");
+  }
+  // 2. 파일에서 로드
+  try {
+    console.log("네이버 키: 파일에서 로드");
+    return require(path.join(__dirname, "package-naver-key.json"));
+  } catch (e) {
+    console.error("네이버 키 파일 로드 실패:", e.message);
     return [];
   }
 })();

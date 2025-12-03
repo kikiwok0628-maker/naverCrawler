@@ -6,4 +6,3 @@ node_modules/
 
 # 인증 키
 package-google-key.json
-package-naver-key.json
