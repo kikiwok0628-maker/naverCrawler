@@ -155,7 +155,7 @@ app.post("/naver_trigger", async (req, res) => {
     return res.status(400).json({ error: "필수값 누락" });
   }
 
-  console.log("순위 조회 시작!");
+  console.log(`순위 조회 시작! [시트: ${sheetName}]`);
 
   try {
     const auth = process.env.GOOGLE_KEY_JSON
@@ -207,7 +207,7 @@ app.post("/naver_trigger", async (req, res) => {
     );
 
     await sendDataToSheet(sheets, ranks, sheetName, spreadsheetId);
-    console.log("순위 업데이트 완료!");
+    console.log(`순위 업데이트 완료! [시트: ${sheetName}]`);
     return res.json({ status: "success" });
   } catch (e) {
     console.error(e);
