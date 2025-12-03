@@ -163,9 +163,13 @@ app.post("/naver_trigger", async (req, res) => {
       : new google.auth.GoogleAuth({ keyFile: path.join(__dirname, "package-google-key.json"), scopes });
     const sheets = google.sheets({ version: "v4", auth });
 
+    console.log(`[${sheetName}] 열 추가 중...`);
     await addColumnInSheet(sheets, sheetId, spreadsheetId);
+    console.log(`[${sheetName}] 열 추가 완료`);
 
+    console.log(`[${sheetName}] 시트 데이터 읽는 중...`);
     const rows = await getRowsFromSheet(sheets, spreadsheetId, sheetName);
+    console.log(`[${sheetName}] 총 ${rows.length}개 행 로드`);
 
     // 키워드별 그룹핑
     const groups = {};
@@ -177,6 +181,7 @@ app.post("/naver_trigger", async (req, res) => {
     });
 
     // 그룹별 동시 병렬 처리
+    console.log(`[${sheetName}] 총 ${Object.keys(groups).length}개 키워드 처리 시작`);
     const ranks = Array(rows.length).fill([""]);
     await Promise.all(
       Object.entries(groups).map(([kw, entries]) =>
@@ -206,6 +211,7 @@ app.post("/naver_trigger", async (req, res) => {
       )
     );
 
+    console.log(`[${sheetName}] 네이버 조회 완료, 시트에 저장 중...`);
     await sendDataToSheet(sheets, ranks, sheetName, spreadsheetId);
     console.log(`순위 업데이트 완료! [시트: ${sheetName}]`);
     return res.json({ status: "success" });
