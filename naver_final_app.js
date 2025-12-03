@@ -68,7 +68,7 @@ async function axiosGetWithRetry(url, retries = 5, backoff = 300) {
       await sleep(wait);
       return axiosGetWithRetry(url, retries - 1, backoff * 2);
     }
-    console.error(` API 에러: ${err.response?.status || err.code}`);
+    console.error(`API 에러: ${err.response?.status || err.code}`);
     throw err;
   }
 }
